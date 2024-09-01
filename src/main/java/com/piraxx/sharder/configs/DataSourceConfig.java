@@ -29,7 +29,7 @@ public class DataSourceConfig {
         shardingDataSource.setTargetDataSources(dataSourceMap);
 
         // Optionally, set a default data source
-        shardingDataSource.setDefaultTargetDataSource(shard1DataSource);
+        shardingDataSource.setDefaultTargetDataSource(shard2DataSource);
 
         return shardingDataSource;
     }

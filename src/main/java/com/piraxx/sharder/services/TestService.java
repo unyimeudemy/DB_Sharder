@@ -20,10 +20,10 @@ public class TestService {
          testRepository.save(
                 TestEntity.builder()
                         .transactionId(testRequest.getTransactionId())
-                        .transactionDetail(testRequest.getTransactionDetail())
+                        .transactionDetail(testRequest.getTransactionDetail() + getDbShard(testRequest.getTransactionId()))
                         .build()
         );
-         return "Test detail: " + testRequest.getTransactionDetail();
+         return "Test detail: " + testRequest.getTransactionDetail() + + getDbShard(testRequest.getTransactionId());
     }
 
     private static String determineShard(int transactionId){
@@ -33,5 +33,10 @@ public class TestService {
             return "shard2";
         }
     }
+
+    private static int getDbShard(int id){
+        return id % 2 == 0 ? 1 : 2;
+    }
+
 
 }
