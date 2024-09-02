@@ -14,8 +14,8 @@ public class TestService {
     public TestRepository testRepository;
 
     public String create(TestRequestDto testRequest){
-        String shardKey = determineShard(testRequest.getTransactionId());
-        ShardingContextHolder.setCurrentShardKey(shardKey);
+//        String shardKey = determineShard(testRequest.getTransactionId());
+//        ShardingContextHolder.setCurrentShardKey(shardKey);
 
          testRepository.save(
                 TestEntity.builder()
@@ -23,20 +23,18 @@ public class TestService {
                         .transactionDetail(testRequest.getTransactionDetail() + getDbShard(testRequest.getTransactionId()))
                         .build()
         );
-         return "Test detail: " + testRequest.getTransactionDetail() + + getDbShard(testRequest.getTransactionId());
+         return "Test detail: " + testRequest.getTransactionDetail() +  getDbShard(testRequest.getTransactionId());
     }
 
-    private static String determineShard(int transactionId){
-        if(transactionId % 2 == 0){
-            return "shard1";
-        }else{
-            return "shard2";
-        }
-    }
+//    private static String determineShard(int transactionId){
+//        if(transactionId % 2 == 0){
+//            return "shard1";
+//        }else{
+//            return "shard2";
+//        }
+//    }
 
     private static int getDbShard(int id){
         return id % 2 == 0 ? 1 : 2;
     }
-
-
 }
