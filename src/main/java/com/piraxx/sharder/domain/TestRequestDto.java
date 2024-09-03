@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class TestRequestDto {
 
-    private int transactionId;
+    private Integer transactionId;
 
     private String transactionDetail;
 }

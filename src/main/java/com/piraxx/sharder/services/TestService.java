@@ -23,7 +23,7 @@ public class TestService {
                         .transactionDetail(testRequest.getTransactionDetail() + getDbShard(testRequest.getTransactionId()))
                         .build()
         );
-         return "Test detail: " + testRequest.getTransactionDetail() +  getDbShard(testRequest.getTransactionId());
+         return "Test detail: " + testRequest.getTransactionDetail() + getDbShard(testRequest.getTransactionId());
     }
 
 //    private static String determineShard(int transactionId){
