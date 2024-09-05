@@ -19,6 +19,11 @@ public class Test {
     public String testCreate(
             @RequestBody TestRequestDto testRequest
     ){
+//        System.out.println("------------------ controller");
+//        Object res = testService.create(testRequest);
+        System.out.println("&&&&&&&&&&&&&&&&&&&&&&&&&&" + testRequest.toString() );
+//        return (String) res;
+
         return testService.create(testRequest);
     }
 

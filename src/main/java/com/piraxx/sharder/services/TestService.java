@@ -16,6 +16,7 @@ public class TestService {
     public String create(TestRequestDto testRequest){
 //        String shardKey = determineShard(testRequest.getTransactionId());
 //        ShardingContextHolder.setCurrentShardKey(shardKey);
+        System.out.println("?????????????????????????" + testRequest.toString());
 
          testRepository.save(
                 TestEntity.builder()
