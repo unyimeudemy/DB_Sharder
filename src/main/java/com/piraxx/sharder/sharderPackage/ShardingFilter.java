@@ -1,5 +1,6 @@
 package com.piraxx.sharder.sharderPackage;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.piraxx.sharder.domain.TestEntity;
 import com.piraxx.sharder.domain.TestRequestDto;
@@ -47,32 +48,38 @@ public class ShardingFilter extends OncePerRequestFilter {
 //            ShardingContextHolder.clear();
 //        }
 
-        String shardKey = determineShard(getRequestBody(request));
+        ContentCachingRequestWrapper cachedRequest = new ContentCachingRequestWrapper(request);
+        String shardKey = determineShard(getRequestBody(cachedRequest));
 
         System.out.println("=========================== " + shardKey);
         ShardingContextHolder.setCurrentShardKey(shardKey);
         System.out.println(")))))))))))))))))))))))))))))))))))))))");
-        filterChain.doFilter(request, response);
+        filterChain.doFilter(cachedRequest, response);
     }
 
-    public TestEntity getRequestBody(HttpServletRequest request) throws IOException {
-//        String requestBody = request.getReader().lines()
-//                .collect(Collectors.joining(System.lineSeparator()));
-//        return objectMapper.readValue(requestBody, TestEntity.class);
+    public TestEntity getRequestBody(ContentCachingRequestWrapper  request) throws IOException {
+
+//        Object res = convertRequestToEntity( request, TestEntity.class);
+////        String requestBody = new String(((ContentCachingRequestWrapper) request)
+////                .getContentAsByteArray());
+//        System.out.println("*******************************************" );
+//        return (TestEntity) res;
+
+        // Use the cached body from the wrapper
+        TestEntity res = convertRequestToEntity(request, TestEntity.class);
+        String requestBody = new String(request.getContentAsByteArray());
 
 
-//        System.out.println("===============> ============> " + request.getInputStream().toString());
-//        String requestBody = request.getInputStream().toString();
-//        return objectMapper.readValue(requestBody, TestEntity.class);
 
-        Object res = convertRequestToEntity(request, TestEntity.class);
-        System.out.println("*******************************************" + res);
-        return (TestEntity) res;
+        // Convert the JSON body to TestEntity
+//        objectMapper.configure(JsonParser.Feature.AUTO_CLOSE_SOURCE, true);
+        System.out.println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$" + requestBody);
+        System.out.println("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$" + res);
+        return objectMapper.readValue(requestBody, TestEntity.class);
     }
 
     private static String determineShard(TestEntity obj){
         System.out.println("===============> ============> " + obj);
-
         System.out.println("------------------------" + obj.getTransactionId());
         int transactionId = obj.getTransactionId();
         if(transactionId % 2 == 0){
@@ -83,7 +90,6 @@ public class ShardingFilter extends OncePerRequestFilter {
     }
 
     public static <T> T convertRequestToEntity(HttpServletRequest request, Class<T> clazz) throws IOException {
-        // Step 1: Read InputStream into a String
         StringBuilder stringBuilder = new StringBuilder();
         BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(request.getInputStream()));
         String line;
@@ -92,8 +98,7 @@ public class ShardingFilter extends OncePerRequestFilter {
         }
         String requestBody = stringBuilder.toString();
 
-        // Step 2: Convert the JSON String to the desired entity class
         ObjectMapper objectMapper = new ObjectMapper();
-        return objectMapper.readValue(requestBody, clazz);  // Convert JSON to specified type
+        return objectMapper.readValue(requestBody, clazz);
     }
 }
