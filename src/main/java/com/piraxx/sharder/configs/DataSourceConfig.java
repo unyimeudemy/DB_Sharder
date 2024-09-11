@@ -29,7 +29,7 @@ public class DataSourceConfig {
         shardingDataSource.setTargetDataSources(dataSourceMap);
 
         // Optionally, set a default data source
-        shardingDataSource.setDefaultTargetDataSource(shard2DataSource);
+        shardingDataSource.setDefaultTargetDataSource(shard1DataSource);
 
         return shardingDataSource;
     }
@@ -44,15 +44,13 @@ public class DataSourceConfig {
         return dataSource;
     }
 
-
     @Bean(name = "shard2DataSource")
     public DataSource shard2DataSource() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource();
         dataSource.setDriverClassName("org.postgresql.Driver");
-        dataSource.setUrl("jdbc:postgresql://dpg-cr9pmb2j1k6c73bjumq0-a.oregon-postgres.render.com:5432/postgres");
+        dataSource.setUrl("jdbc:postgresql://dpg-cr9pmb2j1k6c73bjumq0-a.oregon-postgres.render.com:5432/shard_2");
         dataSource.setUsername("shard_2");
         dataSource.setPassword("2oFAnG8ZeJOscvcdPVsSGZ0q1RWYZevg");
-        return dataSource;    }
-
-
+        return dataSource;
+    }
 }
