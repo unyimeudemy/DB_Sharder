@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class TestRequestDto {
+public class TransactionRequestDto {
 
     private Integer transactionId;
 

@@ -1,5 +1,8 @@
 package com.piraxx.sharder.sharderPackage;
 
+import org.springframework.stereotype.Component;
+
+@Component
 public class ShardingContextHolder {
     private static final ThreadLocal<String> contextHolder = new ThreadLocal<>();
 
