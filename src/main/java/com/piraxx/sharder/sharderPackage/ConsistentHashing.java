@@ -8,6 +8,18 @@ import java.util.TreeMap;
 public class ConsistentHashing {
 
     private final int numberOfReplicas;
+
+/**   By using a TreeMap, nodes and keys are efficiently
+ * distributed across the ring, and the size of the hash
+ * space is effectively infinite (limited only by the size of the hash
+ * function's output, e.g., 32 bits, 64 bits). Meaning that the "size"
+ * of the hash ring is determined by the hash function.
+ *
+ * Since we are using MD5, it will produce a 128-bit hash. And we
+ * are using just a portion of that hash to map nodes
+ * and keys to an integer in a specific range (in this case,
+ * up to the maximum value of a 32-bit signed integer).
+ */
     private final SortedMap<Integer, String> circle = new TreeMap<>();
 
     public ConsistentHashing(int numberOfReplicas) {
@@ -47,6 +59,20 @@ public class ConsistentHashing {
         }
     }
 
+    /**
+     * Another feature of the data structure is it ability to return
+     * a subsection of the map based on any key value provided. The sub-section returned is starts
+     * from the provided key to the end of the map. The data structure
+     * gets very beautiful when an invalid key within the
+     * range of the map’s key set stills returns something.
+     * This is because in an event that an invalid key is provided,
+     * a subsection starting from the key entry that ]
+     * is just greater than the invalid key is returned.
+     *
+     * With this being returned, we can just use the `firstKey` method to get the next
+     * valid key which now happens to be the next  node
+     * going clockwise assuming the map is considered as a ring.
+     */
     public String getNode(Object keyObj) {
         String key = keyObj.toString();
         if (circle.isEmpty()) {
