@@ -13,7 +13,6 @@ public class TransactionService {
     public TransactionRepository transactionRepository;
 
     public String create(TransactionRequestDto testRequest){
-        System.out.println("-----------------------------" + testRequest.toString());
          transactionRepository.save(
                 TransactionEntity.builder()
                         .transactionId(testRequest.getTransactionId())

@@ -11,8 +11,6 @@ public class ShardingContextHolder {
     }
 
     public static String getCurrentShardKey() {
-        String shardKey = contextHolder.get();
-        System.out.println("Current shard key: =============================" + shardKey);
         return contextHolder.get();
     }
 

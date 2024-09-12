@@ -7,20 +7,21 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.springframework.stereotype.Component;
 
+import java.util.SortedMap;
+
 @Aspect
 @Component
 public class ShardingAspect {
 
 
-    @Before("execution (* com.piraxx.sharder.repositories..*(..))")
+    @Before("execution(* com.piraxx..repositories..*(..))")
     private void shardingAspect(JoinPoint joinPoint){
         Object[] args = joinPoint.getArgs();
+
         for (Object arg: args){
-            System.out.println("====================================" + arg.toString());
             if(arg instanceof TransactionEntity){
                 TransactionEntity transactionEntity = (TransactionEntity) arg;
                 String shardKey = determineShard(transactionEntity.getTransactionId());
-                System.out.println("+++++++++++++++++++++++++++++++" + shardKey);
                 ShardingContextHolder.setCurrentShardKey(shardKey);
             }
         }
@@ -31,7 +32,6 @@ public class ShardingAspect {
         ShardingContextHolder.clear();
         System.out.println("Sharding context cleared");
     }
-
 
     private static String determineShard(Integer transactionId){
         if(transactionId % 2 == 0){

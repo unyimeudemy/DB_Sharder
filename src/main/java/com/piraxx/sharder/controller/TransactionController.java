@@ -21,5 +21,4 @@ public class TransactionController {
     ){
         return transactionService.create(transactionRequestDto);
     }
-
 }
