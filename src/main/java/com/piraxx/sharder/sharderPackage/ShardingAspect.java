@@ -2,12 +2,14 @@ package com.piraxx.sharder.sharderPackage;
 
 import com.piraxx.sharder.domain.TransactionEntity;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.After;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.springframework.stereotype.Component;
 
+import java.lang.reflect.Field;
 import java.util.SortedMap;
 
 @Aspect
@@ -16,11 +18,23 @@ public class ShardingAspect {
 
 
     @Before("execution(* com.piraxx..repositories..*(..))")
-    private void shardingAspect(JoinPoint joinPoint){
+    private void shardingAspect(JoinPoint joinPoint) throws IllegalAccessException {
         Object[] args = joinPoint.getArgs();
 
         if(args.length == 0){
             // if request comes without arg, like findAll
+
+            /**
+             * To implement query broadcasting to all shards, perform query on each
+             * shard and join the result as shown
+             * select * from db1.t1
+             * union
+             * select * from db2.t2
+             *
+             * The main problem is that if you run into is cross server joins,
+             * on large million + row systems, it can hit the network pretty
+             * hard and take a long time to process queries.
+             */
 
 
         }else if(args.length == 1){
@@ -54,14 +68,11 @@ public class ShardingAspect {
         }
     }
 
-    private static void simpleSelectShardSingleItem(Object arg){
+    private static void simpleSelectShardSingleItem(Object arg) throws IllegalAccessException {
 
             if(arg instanceof Entity){
-                //argument is an entity
-
-                Object entity = entityList(arg);
-                TransactionEntity transactionEntity = (TransactionEntity) arg;
-                String shardKey = determineShard(transactionEntity.getTransactionId());
+                // if argument is an entity
+                String shardKey = determineShard(getIdFieldValue((Class<?>) arg));
                 ShardingContextHolder.setCurrentShardKey(shardKey);
 
             }else{
@@ -71,16 +82,14 @@ public class ShardingAspect {
             }
     }
 
-    private static Object entityList(Object arg){
-        // scans through a
+    private static Object getIdFieldValue(Class<?> entityClass ) throws IllegalAccessException {
+        for(Field field: entityClass.getDeclaredFields()){
+            if(field.isAnnotationPresent(Id.class)){
+                return field.get(entityClass);
+            }
+        }
+        throw new IllegalArgumentException("No field annotated in class of " + entityClass.getName());
     }
-
-    private static getIdField(){
-
-    }
-
-
-
 
     private static String determineShard(Object obj){
         int id = obj.hashCode();
@@ -90,5 +99,4 @@ public class ShardingAspect {
             return "shard2";
         }
     }
-
 }
