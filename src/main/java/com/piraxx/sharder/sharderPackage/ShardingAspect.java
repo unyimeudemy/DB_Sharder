@@ -34,6 +34,7 @@ public class ShardingAspect {
              * The main problem is that if you run into is cross server joins,
              * on large million + row systems, it can hit the network pretty
              * hard and take a long time to process queries.
+             *
              */
 
 
@@ -55,7 +56,6 @@ public class ShardingAspect {
     @After("execution (* com.piraxx.sharder.repositories..*(..))")
     private void clearShardingContext(JoinPoint joinPoint) {
         ShardingContextHolder.clear();
-        System.out.println("Sharding context cleared");
     }
 
     private static void simpleSelectShardArr(Object[] args){
@@ -69,10 +69,10 @@ public class ShardingAspect {
     }
 
     private static void simpleSelectShardSingleItem(Object arg) throws IllegalAccessException {
-
-            if(arg instanceof Entity){
+            Class<?> clazz = arg.getClass();
+            if(clazz.isAnnotationPresent(Entity.class)){
                 // if argument is an entity
-                String shardKey = determineShard(getIdFieldValue((Class<?>) arg));
+                String shardKey = determineShard(getIdFieldValue((arg)));
                 ShardingContextHolder.setCurrentShardKey(shardKey);
 
             }else{
@@ -82,17 +82,22 @@ public class ShardingAspect {
             }
     }
 
-    private static Object getIdFieldValue(Class<?> entityClass ) throws IllegalAccessException {
+    private static Object getIdFieldValue(Object entityInstance ) throws IllegalAccessException {
+
+        Class<?> entityClass =  entityInstance.getClass();
         for(Field field: entityClass.getDeclaredFields()){
+
             if(field.isAnnotationPresent(Id.class)){
-                return field.get(entityClass);
+                field.setAccessible(true);
+                return field.get(entityInstance);
             }
         }
         throw new IllegalArgumentException("No field annotated in class of " + entityClass.getName());
     }
 
     private static String determineShard(Object obj){
-        int id = obj.hashCode();
+//        int id = Math.abs(obj.hashCode());
+        int id = (int) obj;
         if(id % 2 == 0){
             return "shard1";
         }else{

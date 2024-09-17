@@ -1,5 +1,6 @@
 package com.piraxx.sharder.configs;
 
+import com.piraxx.sharder.sharderPackage.DataSourcesHandlerAspect;
 import com.piraxx.sharder.sharderPackage.ShardingDataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
@@ -8,6 +9,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -20,18 +22,8 @@ public class DataSourceConfig {
             @Qualifier("shard1DataSource") DataSource shard1DataSource,
             @Qualifier("shard2DataSource") DataSource shard2DataSource
     ) {
-
-        Map<Object, Object> dataSourceMap = new HashMap<>();
-        dataSourceMap.put("shard1", shard1DataSource);
-        dataSourceMap.put("shard2", shard2DataSource);
-
-        ShardingDataSource shardingDataSource = new ShardingDataSource();
-        shardingDataSource.setTargetDataSources(dataSourceMap);
-
-        // Optionally, set a default data source
-        shardingDataSource.setDefaultTargetDataSource(shard1DataSource);
-
-        return shardingDataSource;
+        DataSourcesHandlerAspect dataSourceHandler = new DataSourcesHandlerAspect();
+        return dataSourceHandler.setDataSources(shard2DataSource);
     }
 
     @Bean(name = "shard1DataSource")

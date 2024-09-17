@@ -26,25 +26,6 @@ public class ConsistentHashing {
         this.numberOfReplicas = numberOfReplicas;
     }
 
-
-    private int hash(Object keyObj) {
-        try {
-            String key = keyObj.toString();
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            byte[] digest = md.digest(key.getBytes(StandardCharsets.UTF_8));
-
-            return Math.abs(
-                            digest[0] << 24 |
-                            (digest[1] & 0xFF) << 16 |
-                            (digest[2] & 0xFF) << 8 |
-                            (digest[3] & 0xFF)
-            );
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("No such algorithm exception", e);
-        }
-    }
-
-
     public void addNode(String node) {
         for (int i = 0; i < numberOfReplicas; i++) {
             int hash = hash(node + i);
@@ -61,7 +42,7 @@ public class ConsistentHashing {
 
     /**
      * Another feature of the data structure is it ability to return
-     * a subsection of the map based on any key value provided. The sub-section returned is starts
+     * a subsection of the map based on any key value provided. The subsection returned is starts
      * from the provided key to the end of the map. The data structure
      * gets very beautiful when an invalid key within the
      * range of the map’s key set stills returns something.
@@ -83,5 +64,26 @@ public class ConsistentHashing {
         int nodeHash = !tailMap.isEmpty() ? tailMap.firstKey() : circle.firstKey();
         return circle.get(nodeHash);
     }
+
+
+
+    private int hash(Object keyObj) {
+        try {
+            String key = keyObj.toString();
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] digest = md.digest(key.getBytes(StandardCharsets.UTF_8));
+
+            return Math.abs(
+                    digest[0] << 24 |
+                            (digest[1] & 0xFF) << 16 |
+                            (digest[2] & 0xFF) << 8 |
+                            (digest[3] & 0xFF)
+            );
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("No such algorithm exception", e);
+        }
+    }
+
+
 }
 
