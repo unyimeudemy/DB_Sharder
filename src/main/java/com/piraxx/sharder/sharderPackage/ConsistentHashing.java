@@ -1,4 +1,5 @@
 package com.piraxx.sharder.sharderPackage;
+import org.apache.commons.codec.digest.MurmurHash3;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -71,23 +72,10 @@ public class ConsistentHashing {
         return circle.get(nodeHash);
     }
 
-
-
     private int hash(Object keyObj) {
-        try {
             String key = keyObj.toString();
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            byte[] digest = md.digest(key.getBytes(StandardCharsets.UTF_8));
-
-            return Math.abs(
-                    digest[0] << 24 |
-                            (digest[1] & 0xFF) << 16 |
-                            (digest[2] & 0xFF) << 8 |
-                            (digest[3] & 0xFF)
-            );
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("No such algorithm exception", e);
-        }
+            byte[] keyBytes = key.getBytes(StandardCharsets.UTF_8);
+            return Math.abs(MurmurHash3.hash32(keyBytes, 0, keyBytes.length, 0));
     }
 
     public SortedMap<Integer, String> getHashRing(){
