@@ -16,13 +16,11 @@ public class TransactionService {
          transactionRepository.save(
                 TransactionEntity.builder()
                         .transactionId(testRequest.getTransactionId())
-                        .transactionDetail(testRequest.getTransactionDetail() + getDbShard(testRequest.getTransactionId()))
+                        .transactionDetail(testRequest.getTransactionDetail())
                         .build()
         );
-         return "Test detail: " + testRequest.getTransactionDetail() + getDbShard(testRequest.getTransactionId());
+         return "Test detail: " + testRequest.getTransactionDetail();
     }
 
-    private static int getDbShard(int id){
-        return id % 2 == 0 ? 1 : 2;
-    }
+
 }

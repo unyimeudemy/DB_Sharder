@@ -2,13 +2,11 @@ package com.piraxx.sharder.sharderPackage;
 
 
 import org.aspectj.lang.JoinPoint;
-import org.aspectj.lang.annotation.After;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -27,6 +25,11 @@ public class DataSourcesHandlerAspect {
     // Hashmap to contain datasources and their shard names
     static Map<Object, Object> dataSourceMap = new HashMap<>();
 
+    ConsistentHashing consistentHashing;
+
+    public DataSourcesHandlerAspect(){
+        consistentHashing = new ConsistentHashing();
+    }
 
     public  Object[] getShardList(){
         return args;
@@ -39,6 +42,7 @@ public class DataSourcesHandlerAspect {
     public ShardingDataSource setDataSources(DataSource defaultDataSource){
         ShardingDataSource shardingDataSource = new ShardingDataSource();
         shardingDataSource.setTargetDataSources(dataSourceMap);
+        addNodesToHashRing();
 
         // Set a default data source
         shardingDataSource.setDefaultTargetDataSource(defaultDataSource);
@@ -54,5 +58,12 @@ public class DataSourcesHandlerAspect {
             dataSourceMap.put(shardsBaseName + shardCount, arg);
             shardCount++;
         }
+    }
+
+    private void addNodesToHashRing(){
+        for(Object key: dataSourceMap.keySet()){
+            consistentHashing.addNode((String) key);
+        }
+        System.out.println("====in DataSourcesHandlerAspect==== Hash ring => " + consistentHashing.getHashRing());
     }
 }

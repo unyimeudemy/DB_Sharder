@@ -3,6 +3,7 @@ package com.piraxx.sharder.configs;
 import com.piraxx.sharder.sharderPackage.DataSourcesHandlerAspect;
 import com.piraxx.sharder.sharderPackage.ShardingDataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -15,6 +16,8 @@ import java.util.Map;
 
 @Configuration
 public class DataSourceConfig {
+
+
 
     @Bean
     @Primary

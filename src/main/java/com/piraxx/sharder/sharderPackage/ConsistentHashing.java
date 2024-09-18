@@ -1,4 +1,6 @@
 package com.piraxx.sharder.sharderPackage;
+import org.springframework.stereotype.Component;
+
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -7,7 +9,7 @@ import java.util.TreeMap;
 
 public class ConsistentHashing {
 
-    private final int numberOfReplicas;
+    private int numberOfReplicas;
 
 /**   By using a TreeMap, nodes and keys are efficiently
  * distributed across the ring, and the size of the hash
@@ -20,10 +22,14 @@ public class ConsistentHashing {
  * and keys to an integer in a specific range (in this case,
  * up to the maximum value of a 32-bit signed integer).
  */
-    private final SortedMap<Integer, String> circle = new TreeMap<>();
+    private static final SortedMap<Integer, String> circle = new TreeMap<>();
 
-    public ConsistentHashing(int numberOfReplicas) {
-        this.numberOfReplicas = numberOfReplicas;
+    public ConsistentHashing() {
+        setReplicas();
+    }
+
+    private void setReplicas(){
+        this.numberOfReplicas = Integer.parseInt(System.getenv("replicas"));
     }
 
     public void addNode(String node) {
@@ -84,6 +90,8 @@ public class ConsistentHashing {
         }
     }
 
-
+    public SortedMap<Integer, String> getHashRing(){
+        return circle;
+    }
 }
 

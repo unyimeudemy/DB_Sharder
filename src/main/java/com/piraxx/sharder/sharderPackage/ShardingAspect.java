@@ -16,6 +16,7 @@ import java.util.SortedMap;
 @Component
 public class ShardingAspect {
 
+    static ConsistentHashing consistentHashing = new ConsistentHashing();
 
     @Before("execution(* com.piraxx..repositories..*(..))")
     private void shardingAspect(JoinPoint joinPoint) throws IllegalAccessException {
@@ -96,12 +97,15 @@ public class ShardingAspect {
     }
 
     private static String determineShard(Object obj){
+        System.out.println("++++++++===============" + consistentHashing.getNode(obj));
+        return consistentHashing.getNode(obj);
+
 //        int id = Math.abs(obj.hashCode());
-        int id = (int) obj;
-        if(id % 2 == 0){
-            return "shard1";
-        }else{
-            return "shard2";
-        }
+//        int id = (int) obj;
+//        if(id % 2 == 0){
+//            return "shard1";
+//        }else{
+//            return "shard2";
+//        }
     }
 }
