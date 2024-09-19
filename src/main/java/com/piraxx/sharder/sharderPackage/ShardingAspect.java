@@ -7,10 +7,13 @@ import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.After;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
+import org.aspectj.lang.reflect.MethodSignature;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Component;
 
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
-import java.util.SortedMap;
+import java.lang.reflect.Method;
 
 @Aspect
 @Component
@@ -20,8 +23,27 @@ public class ShardingAspect {
 
     @Before("execution(* com.piraxx..repositories..*(..))")
     private void shardingAspect(JoinPoint joinPoint) throws IllegalAccessException {
-        Object[] args = joinPoint.getArgs();
+        Boolean usesRawQuery = isAnnotatedWithQuery(joinPoint);
+        if(usesRawQuery){
+            processRequestWithRawSqlQuery(joinPoint);
+        }else {
+            processRequestWithoutRawSqlQuery(joinPoint);
+        }
+    }
 
+    private static void processRequestWithRawSqlQuery(JoinPoint joinPoint){
+        String sqlString = getRawSqlQueryFromJointPoint(joinPoint);
+
+        /**
+         * 1. how to run raw sql on shard
+         * 2. How to implement scatter method of querying shard in distributed system
+         * 3. Implement Entity With UUId
+         */
+
+    }
+
+    private static void processRequestWithoutRawSqlQuery(JoinPoint joinPoint) throws IllegalAccessException {
+        Object[] args = joinPoint.getArgs();
         if(args.length == 0){
             // if request comes without arg, like findAll
 
@@ -44,22 +66,55 @@ public class ShardingAspect {
             Object arg = args[0];
             if(arg instanceof String || arg instanceof  Number){
                 // if the arg is just an ID like UUID or from snowflake like in findById etc
-                simpleSelectShardSingleItem(arg);
+                selectShardForSingleArg(arg);
             }else{
                 // if the arg is an entity like in save
-                simpleSelectShardSingleItem(arg);
+                selectShardForSingleArg(arg);
             }
         }else {
-            simpleSelectShardArr(args);
+            /*
+             * There are situations where multiple arguments come in but only one of them
+             * which may be int (or string) or an object (with an id field) that will
+             * determine the shard to operate on.
+             */
+
+            selectShardForMultipleArgs(args);
         }
     }
 
+    private static String getRawSqlQueryFromJointPoint(JoinPoint joinPoint){
+        MethodSignature signature = (MethodSignature) joinPoint.getSignature();
+        Method method = signature.getMethod();
+
+        if(method.isAnnotationPresent(Query.class)){
+            Query queryAnnotation = method.getAnnotation(Query.class);
+            return queryAnnotation.value();
+        }
+        return null;
+    }
+
+    private static Boolean isAnnotatedWithQuery(JoinPoint joinPoint){
+        Annotation[] repositoryMethodAnnotations = getRepositoryMethodAnnotation(joinPoint);
+        for(Annotation annotation: repositoryMethodAnnotations){
+            if(annotation.annotationType() == Query.class){
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Annotation[] getRepositoryMethodAnnotation(JoinPoint joinPoint){
+        MethodSignature signature = (MethodSignature) joinPoint.getSignature();
+        Method method = signature.getMethod();
+        return method.getAnnotations();
+    }
+
     @After("execution (* com.piraxx.sharder.repositories..*(..))")
-    private void clearShardingContext(JoinPoint joinPoint) {
+    private void clearShardingContext() {
         ShardingContextHolder.clear();
     }
 
-    private static void simpleSelectShardArr(Object[] args){
+    private static void selectShardForMultipleArgs(Object[] args){
         for (Object arg: args){
             if(arg instanceof TransactionEntity){
                 TransactionEntity transactionEntity = (TransactionEntity) arg;
@@ -69,7 +124,7 @@ public class ShardingAspect {
         }
     }
 
-    private static void simpleSelectShardSingleItem(Object arg) throws IllegalAccessException {
+    private static void selectShardForSingleArg(Object arg) throws IllegalAccessException {
             Class<?> clazz = arg.getClass();
             if(clazz.isAnnotationPresent(Entity.class)){
                 // if argument is an entity
@@ -97,15 +152,6 @@ public class ShardingAspect {
     }
 
     private static String determineShard(Object obj){
-        System.out.println("++++++++===============" + consistentHashing.getNode(obj));
         return consistentHashing.getNode(obj);
-
-//        int id = Math.abs(obj.hashCode());
-//        int id = (int) obj;
-//        if(id % 2 == 0){
-//            return "shard1";
-//        }else{
-//            return "shard2";
-//        }
     }
 }
