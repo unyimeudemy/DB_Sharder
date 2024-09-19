@@ -1,6 +1,7 @@
 package com.piraxx.sharder.sharderPackage;
 
 import com.piraxx.sharder.domain.TransactionEntity;
+import com.piraxx.sharder.sharderPackage.utils.ResourceCloser;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import org.aspectj.lang.JoinPoint;
@@ -8,12 +9,19 @@ import org.aspectj.lang.annotation.After;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Component;
 
+import javax.sql.DataSource;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 @Aspect
 @Component
@@ -21,8 +29,11 @@ public class ShardingAspect {
 
     static ConsistentHashing consistentHashing = new ConsistentHashing();
 
+    private static final Logger logger = LoggerFactory.getLogger(ShardingAspect.class);
+
+
     @Before("execution(* com.piraxx..repositories..*(..))")
-    private void shardingAspect(JoinPoint joinPoint) throws IllegalAccessException {
+    private void shardingAspect(JoinPoint joinPoint) throws IllegalAccessException, SQLException {
         Boolean usesRawQuery = isAnnotatedWithQuery(joinPoint);
         if(usesRawQuery){
             processRequestWithRawSqlQuery(joinPoint);
@@ -31,8 +42,15 @@ public class ShardingAspect {
         }
     }
 
-    private static void processRequestWithRawSqlQuery(JoinPoint joinPoint){
+    private static void processRequestWithRawSqlQuery(JoinPoint joinPoint) throws SQLException {
         String sqlString = getRawSqlQueryFromJointPoint(joinPoint);
+        Boolean hasQueryParameter = isQueryParameterized(joinPoint);
+
+        if(hasQueryParameter){
+            processQueriesWithParameters(joinPoint, sqlString);
+        }else{
+            processQueriesWithoutParameters(sqlString);
+        }
 
         /**
          * 1. how to run raw sql on shard
@@ -47,7 +65,7 @@ public class ShardingAspect {
         if(args.length == 0){
             // if request comes without arg, like findAll
 
-            /**
+            /*
              * To implement query broadcasting to all shards, perform query on each
              * shard and join the result as shown
              * select * from db1.t1
@@ -80,6 +98,88 @@ public class ShardingAspect {
 
             selectShardForMultipleArgs(args);
         }
+    }
+
+    private static Boolean isQueryParameterized(JoinPoint joinPoint){
+        return joinPoint.getArgs().length > 0;
+    }
+
+    private static void processQueriesWithoutParameters (String sqlString) throws SQLException {
+        broadCastQueryAcrossShards(sqlString);
+    }
+
+    private static void processQueriesWithParameters (JoinPoint joinPoint, String sqlString) throws SQLException {
+        PreparedStatement preparedStatement = broadCastQueryAcrossShards(sqlString);
+
+        // broadCastQueryAcrossShards should return something that we can
+        // then set the parameters with.
+    }
+
+    private static PreparedStatement broadCastQueryAcrossShards(String sqlString) throws SQLException {
+//        Object[] shards = DataSourcesHandlerAspect.getShardList();
+        Map<Object, Object> shardMap = DataSourcesHandlerAspect.getDataSourceMap();
+
+        // why use result set here
+        List<ResultSet> results = new ArrayList<>();
+
+        Connection connection = null;
+        PreparedStatement preparedStatement = null;
+        ResultSet resultSet = null;
+
+        for(Object shardKey: shardMap.keySet()){
+            DataSource dataSource = (DataSource) shardMap.get(shardKey);
+            try{
+                /*
+                 * The reason for calling dataSource.getConnection()
+                 * is that the DataSource object itself does not represent a direct,
+                 * persistent connection to the database. Instead, it acts as a factory
+                 * for providing pooled connections.
+                 *
+                 * DataSource provides connection pooling, where multiple connections are
+                 * kept alive and reused. When you call getConnection(), you're borrowing a
+                 * pre-existing connection from this pool.
+                 *
+                 * After using a connection, it is returned to the pool when it is closed in the finally block.
+                 * The pool manages these connections, so we are not disconnecting from the database, just
+                 * returning the connection to the pool for the next use.
+                 *
+                 */
+                connection = dataSource.getConnection();
+
+                /*
+                 * Here we are using a PreparedStatement object for sending parameterized
+                 * SQL statements to the database. Recall that parameterized statement are
+                 * statements that are meant to be reused very often with different parameter.
+                 * Thus, it is not suitable to use Statement object which is designed for normal
+                 * statements according documentation on the Statement object that says
+                 * "If the same SQL statement is executed many times, it may be more
+                 * efficient to use a PreparedStatement object."
+                 */
+                preparedStatement = connection.prepareStatement(sqlString);
+                resultSet = preparedStatement.executeQuery(sqlString);
+
+                // If you have parameters to set, do it here
+                // Example: preparedStatement.setString(1, "someValue");
+
+                // combine results from each shard
+
+            }catch (Exception e){
+                logger.error("Error performing operation on shard: {}", shardKey);
+            }finally {
+                /*
+                 * closes the connection and makes it available for any other component
+                 * in the app. That is makes it idle and returns it to the pool.
+                 *
+                 * Note resources are passed in order the expecting are expected
+                 * and try-with-resources statement can eliminate the need for this
+                 * resource closing util class, but I still implemented it for
+                 * learning purpose.
+                 */
+                ResourceCloser.closeResources(connection, preparedStatement, resultSet);
+            }
+
+        }
+        return preparedStatement;
     }
 
     private static String getRawSqlQueryFromJointPoint(JoinPoint joinPoint){

@@ -16,7 +16,7 @@ import java.util.Map;
 public class DataSourcesHandlerAspect {
 
     // List to store all the database shards
-    Object[] args;
+    static Object[] args;
 
     // base name for database shard to which each shard unique identifier
     // will be appended to.
@@ -31,11 +31,13 @@ public class DataSourcesHandlerAspect {
         consistentHashing = new ConsistentHashing();
     }
 
-    public  Object[] getShardList(){
+    // returns list of all data sources
+    public static Object[] getShardList(){
         return args;
     }
 
-    public Map<Object, Object> getDataSourceMap(){
+    // returns a key-value set of all shards(data sources) and their names
+    public static Map<Object, Object> getDataSourceMap(){
         return dataSourceMap;
     }
 
