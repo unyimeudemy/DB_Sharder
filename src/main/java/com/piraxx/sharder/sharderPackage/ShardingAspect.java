@@ -12,6 +12,7 @@ import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.ReturnedType;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
@@ -48,9 +49,9 @@ public class ShardingAspect {
         Boolean hasQueryParameter = isQueryParameterized(joinPoint);
 
         if(hasQueryParameter){
-            processQueriesWithParameters(joinPoint, sqlString);
+            processQueriesWithParameters(sqlString, joinPoint);
         }else{
-            processQueriesWithoutParameters(sqlString);
+            processQueriesWithoutParameters(sqlString, joinPoint);
         }
 
         /**
@@ -113,18 +114,18 @@ public class ShardingAspect {
         return joinPoint.getArgs().length > 0;
     }
 
-    private static void processQueriesWithoutParameters (String sqlString) throws SQLException {
-        broadCastQueryWithoutParametersAcrossShards(sqlString);
+    private static void processQueriesWithoutParameters (String sqlString, JoinPoint joinPoint) throws SQLException {
+        broadCastQueryWithoutParametersAcrossShards(sqlString, joinPoint);
     }
 
-    private static void processQueriesWithParameters (JoinPoint joinPoint, String sqlString) throws SQLException {
-        PreparedStatement preparedStatement = broadCastQueryWithParameterAcrossShards(sqlString, joinPoint);
+    private static void processQueriesWithParameters (String sqlString, JoinPoint joinPoint) throws SQLException {
+        PreparedStatement preparedStatement = broadCastQueryWithParameterAcrossShards(sqlString);
 
         // broadCastQueryAcrossShards should return something that we can
         // then set the parameters with.
     }
 
-    private static void broadCastQueryWithoutParametersAcrossShards(String sqlString) throws SQLException {
+    private static void broadCastQueryWithoutParametersAcrossShards(String sqlString, JoinPoint joinPoint) throws SQLException {
         Map<Object, Object> shardMap = DataSourcesHandlerAspect.getDataSourceMap();
 
         /*
@@ -187,7 +188,8 @@ public class ShardingAspect {
                 ResourceCloser.closeResources(connection, preparedStatement, resultSet);
             }
         }
-        combineQueryResults(results);
+        List<Map<String, Object>> combinedResults = combineQueryResults(results);
+        Object transformedResult = transformResultSetToAppropriateReturnType(combinedResults, joinPoint); // for example map to entity
 
         /*
          * After combining the result we need to ensure the result is sent from the repository
@@ -261,7 +263,13 @@ public class ShardingAspect {
         }
     }
 
-    private static void combineQueryResults(List<ResultSet> results) throws SQLException {
+    private static List<Map<String, Object>> combineQueryResults(List<ResultSet> results) throws SQLException {
+
+        /*
+         * We have to loop through everything because a result set is not updatable
+         * according to this portion of the documentation
+         * "A default ResultSet object is not updatable and has a cursor that moves forward only."
+         */
 
         List<Map<String, Object>> combinedResults = new ArrayList<>();
         for (ResultSet resultSet: results){
@@ -274,10 +282,20 @@ public class ShardingAspect {
                 for(int i=1; i<=columnCount; i++){
                     String columnName = metaData.getColumnName(i);
                     Object value = resultSet.getObject(i);
+                    row.put(columnName, value);
                 }
+                combinedResults.add(row);
             }
-
         }
+        return combinedResults;
+    }
+
+    private static Object transformResultSetToAppropriateReturnType(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
+        MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
+        Class<?> returnedType = methodSignature.getReturnType();
+
+        // use ParameterizedType instead of the code below
+//        returnedType.getName();
 
     }
 
