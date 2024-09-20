@@ -20,6 +20,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.sql.*;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -85,6 +86,14 @@ public class ShardingAspect {
             if(arg instanceof String || arg instanceof  Number){
                 // if the arg is just an ID like UUID or from snowflake like in findById etc
                 selectShardForSingleArg(arg);
+
+                /* TODO:  Handle queries with single method arguments that are not Primary key
+                 *
+                 * Note there are repository methods like
+                 * Optional<StaffMemberEntity> findByStaffEmail(String staffEmail);
+                 * that the provided argument needs to be broadcast across all the shards
+                 */
+
             }else{
                 // if the arg is an entity like in save
                 selectShardForSingleArg(arg);
@@ -105,21 +114,92 @@ public class ShardingAspect {
     }
 
     private static void processQueriesWithoutParameters (String sqlString) throws SQLException {
-        broadCastQueryAcrossShards(sqlString);
+        broadCastQueryWithoutParametersAcrossShards(sqlString);
     }
 
     private static void processQueriesWithParameters (JoinPoint joinPoint, String sqlString) throws SQLException {
-        PreparedStatement preparedStatement = broadCastQueryAcrossShards(sqlString);
+        PreparedStatement preparedStatement = broadCastQueryWithParameterAcrossShards(sqlString, joinPoint);
 
         // broadCastQueryAcrossShards should return something that we can
         // then set the parameters with.
     }
 
-    private static PreparedStatement broadCastQueryAcrossShards(String sqlString) throws SQLException {
-//        Object[] shards = DataSourcesHandlerAspect.getShardList();
+    private static void broadCastQueryWithoutParametersAcrossShards(String sqlString) throws SQLException {
         Map<Object, Object> shardMap = DataSourcesHandlerAspect.getDataSourceMap();
 
-        // why use result set here
+        /*
+         * A ResultSet object is automatically closed when the Statement object that
+         * generated it is closed, re-executed, or used to retrieve the next result
+         * from a sequence of multiple results.
+         */
+
+        // why use resultSet set here
+        List<ResultSet> results = new ArrayList<>();
+
+        Connection connection = null;
+        PreparedStatement preparedStatement = null;
+        ResultSet resultSet = null;
+
+        for(Object shardKey: shardMap.keySet()){
+            DataSource dataSource = (DataSource) shardMap.get(shardKey);
+            try{
+                /*
+                 * The reason for calling dataSource.getConnection()
+                 * is that the DataSource object itself does not represent a direct,
+                 * persistent connection to the database. Instead, it acts as a factory
+                 * for providing pooled connections.
+                 *
+                 * DataSource provides connection pooling, where multiple connections are
+                 * kept alive and reused. When you call getConnection(), you're borrowing a
+                 * pre-existing connection from this pool.
+                 *
+                 * After using a connection, it is returned to the pool when it is closed in the finally block.
+                 * The pool manages these connections, so we are not disconnecting from the database, just
+                 * returning the connection to the pool for the next use.
+                 *
+                 */
+                connection = dataSource.getConnection();
+
+                /*
+                 * Here we are using a PreparedStatement object for sending parameterized
+                 * SQL statements to the database. Recall that parameterized statement are
+                 * statements that are meant to be reused very often with different parameter.
+                 * Thus, it is not suitable to use Statement object which is designed for normal
+                 * statements according documentation on the Statement object that says
+                 * "If the same SQL statement is executed many times, it may be more
+                 * efficient to use a PreparedStatement object."
+                 */
+                preparedStatement = connection.prepareStatement(sqlString);
+                resultSet = preparedStatement.executeQuery();
+                results.add(resultSet);
+            }catch (Exception e){
+                logger.error("Error performing operation on shard: {}", shardKey);
+            }finally {
+                /*
+                 * closes the connection and makes it available for any other component
+                 * in the app. That is makes it idle and returns it to the pool.
+                 *
+                 * Note resources are passed in order the expecting are expected
+                 * and try-with-resources statement can eliminate the need for this
+                 * resource closing util class, but I still implemented it for
+                 * learning purpose.
+                 */
+                ResourceCloser.closeResources(connection, preparedStatement, resultSet);
+            }
+        }
+        combineQueryResults(results);
+
+        /*
+         * After combining the result we need to ensure the result is sent from the repository
+         * layer back to the service layer in the expected format.
+         */
+    }
+
+    private static List<Map<String, Object>> broadCastQueryWithParameterAcrossShards (String sqlString) throws SQLException {
+        //Object[] shards = DataSourcesHandlerAspect.getShardList();
+        Map<Object, Object> shardMap = DataSourcesHandlerAspect.getDataSourceMap();
+
+        // why use resultSet set here
         List<ResultSet> results = new ArrayList<>();
 
         Connection connection = null;
@@ -179,7 +259,26 @@ public class ShardingAspect {
             }
 
         }
-        return preparedStatement;
+    }
+
+    private static void combineQueryResults(List<ResultSet> results) throws SQLException {
+
+        List<Map<String, Object>> combinedResults = new ArrayList<>();
+        for (ResultSet resultSet: results){
+            ResultSetMetaData metaData = resultSet.getMetaData();
+            int columnCount  = metaData.getColumnCount();
+
+            while(resultSet.next()){
+                Map<String, Object> row = new HashMap<>();
+
+                for(int i=1; i<=columnCount; i++){
+                    String columnName = metaData.getColumnName(i);
+                    Object value = resultSet.getObject(i);
+                }
+            }
+
+        }
+
     }
 
     private static String getRawSqlQueryFromJointPoint(JoinPoint joinPoint){
