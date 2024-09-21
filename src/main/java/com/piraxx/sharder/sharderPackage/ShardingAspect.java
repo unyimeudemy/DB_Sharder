@@ -1,6 +1,7 @@
 package com.piraxx.sharder.sharderPackage;
 
 import com.piraxx.sharder.domain.TransactionEntity;
+import com.piraxx.sharder.sharderPackage.utils.HandleRepositoryMethodsReponses;
 import com.piraxx.sharder.sharderPackage.utils.ResourceCloser;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -19,6 +20,8 @@ import javax.sql.DataSource;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -35,34 +38,27 @@ public class ShardingAspect {
 
 
     @Before("execution(* com.piraxx..repositories..*(..))")
-    private void shardingAspect(JoinPoint joinPoint) throws IllegalAccessException, SQLException {
+    private Object shardingAspect(JoinPoint joinPoint) throws IllegalAccessException, SQLException {
         Boolean usesRawQuery = isAnnotatedWithQuery(joinPoint);
         if(usesRawQuery){
-            processRequestWithRawSqlQuery(joinPoint);
+            return processRequestWithRawSqlQuery(joinPoint);
         }else {
-            processRequestWithoutRawSqlQuery(joinPoint);
+            return processRequestWithoutRawSqlQuery(joinPoint);
         }
     }
 
-    private static void processRequestWithRawSqlQuery(JoinPoint joinPoint) throws SQLException {
+    private static Object processRequestWithRawSqlQuery(JoinPoint joinPoint) throws SQLException {
         String sqlString = getRawSqlQueryFromJointPoint(joinPoint);
         Boolean hasQueryParameter = isQueryParameterized(joinPoint);
 
         if(hasQueryParameter){
-            processQueriesWithParameters(sqlString, joinPoint);
+            return processQueriesWithParameters(sqlString, joinPoint);
         }else{
-            processQueriesWithoutParameters(sqlString, joinPoint);
+            return processQueriesWithoutParameters(sqlString, joinPoint);
         }
-
-        /**
-         * 1. how to run raw sql on shard
-         * 2. How to implement scatter method of querying shard in distributed system
-         * 3. Implement Entity With UUId
-         */
-
     }
 
-    private static void processRequestWithoutRawSqlQuery(JoinPoint joinPoint) throws IllegalAccessException {
+    private static Object processRequestWithoutRawSqlQuery(JoinPoint joinPoint) throws IllegalAccessException {
         Object[] args = joinPoint.getArgs();
         if(args.length == 0){
             // if request comes without arg, like findAll
@@ -114,18 +110,31 @@ public class ShardingAspect {
         return joinPoint.getArgs().length > 0;
     }
 
-    private static void processQueriesWithoutParameters (String sqlString, JoinPoint joinPoint) throws SQLException {
-        broadCastQueryWithoutParametersAcrossShards(sqlString, joinPoint);
+    private static Object processQueriesWithoutParameters (String sqlString, JoinPoint joinPoint) throws SQLException {
+        return broadCastQueryWithoutParametersAcrossShards(sqlString, joinPoint);
     }
 
-    private static void processQueriesWithParameters (String sqlString, JoinPoint joinPoint) throws SQLException {
+    private static Object processQueriesWithParameters (String sqlString, JoinPoint joinPoint) throws SQLException {
         PreparedStatement preparedStatement = broadCastQueryWithParameterAcrossShards(sqlString);
 
         // broadCastQueryAcrossShards should return something that we can
         // then set the parameters with.
     }
 
-    private static void broadCastQueryWithoutParametersAcrossShards(String sqlString, JoinPoint joinPoint) throws SQLException {
+    private static Object broadCastQueryWithoutParametersAcrossShards(String sqlString, JoinPoint joinPoint) throws SQLException {
+        /* There are two situations
+        * 1. operations like SELECT that return sometime
+        * 2. operations like DELETE, INSERT, or UPDATE that return nothing
+        * */
+        if(sqlString.startsWith("SELECT") || sqlString.startsWith("select")){
+            performQueryOperationWithNoReturnValue(sqlString, joinPoint);
+            return null;
+        }else{
+            return performQueryOperationWithReturnValue(sqlString, joinPoint);
+        }
+    }
+
+    private static void performQueryOperationWithNoReturnValue(String sqlString, JoinPoint joinPoint){
         Map<Object, Object> shardMap = DataSourcesHandlerAspect.getDataSourceMap();
 
         /*
@@ -134,7 +143,65 @@ public class ShardingAspect {
          * from a sequence of multiple results.
          */
 
-        // why use resultSet set here
+        Connection connection = null;
+        PreparedStatement preparedStatement = null;
+
+        for(Object shardKey: shardMap.keySet()){
+            DataSource dataSource = (DataSource) shardMap.get(shardKey);
+            try{
+                /*
+                 * The reason for calling dataSource.getConnection()
+                 * is that the DataSource object itself does not represent a direct,
+                 * persistent connection to the database. Instead, it acts as a factory
+                 * for providing pooled connections.
+                 *
+                 * DataSource provides connection pooling, where multiple connections are
+                 * kept alive and reused. When you call getConnection(), you're borrowing a
+                 * pre-existing connection from this pool.
+                 *
+                 * After using a connection, it is returned to the pool when it is closed in the finally block.
+                 * The pool manages these connections, so we are not disconnecting from the database, just
+                 * returning the connection to the pool for the next use.
+                 *
+                 */
+                connection = dataSource.getConnection();
+
+                /*
+                 * Here we are using a PreparedStatement object for sending parameterized
+                 * SQL statements to the database. Recall that parameterized statement are
+                 * statements that are meant to be reused very often with different parameter.
+                 * Thus, it is not suitable to use Statement object which is designed for normal
+                 * statements according documentation on the Statement object that says
+                 * "If the same SQL statement is executed many times, it may be more
+                 * efficient to use a PreparedStatement object."
+                 */
+                preparedStatement = connection.prepareStatement(sqlString);
+                preparedStatement.executeUpdate();
+            }catch (Exception e){
+                logger.error("Error performing operation on shard: {}", shardKey);
+            }finally {
+                /*
+                 * closes the connection and makes it available for any other component
+                 * in the app. That is makes it idle and returns it to the pool.
+                 *
+                 * Note resources are passed in order the expecting are expected
+                 * and try-with-resources statement can eliminate the need for this
+                 * resource closing util class, but I still implemented it for
+                 * learning purpose.
+                 */
+                ResourceCloser.closeResources(connection, preparedStatement);
+            }
+        }
+    }
+
+    private static Object performQueryOperationWithReturnValue(String sqlString, JoinPoint joinPoint) throws SQLException {
+        Map<Object, Object> shardMap = DataSourcesHandlerAspect.getDataSourceMap();
+
+        /*
+         * A ResultSet object is automatically closed when the Statement object that
+         * generated it is closed, re-executed, or used to retrieve the next result
+         * from a sequence of multiple results.
+         */
         List<ResultSet> results = new ArrayList<>();
 
         Connection connection = null;
@@ -188,13 +255,8 @@ public class ShardingAspect {
                 ResourceCloser.closeResources(connection, preparedStatement, resultSet);
             }
         }
-        List<Map<String, Object>> combinedResults = combineQueryResults(results);
-        Object transformedResult = transformResultSetToAppropriateReturnType(combinedResults, joinPoint); // for example map to entity
-
-        /*
-         * After combining the result we need to ensure the result is sent from the repository
-         * layer back to the service layer in the expected format.
-         */
+        List<Map<String, Object>> combinedResults = HandleRepositoryMethodsReponses.combineQueryResults(results);
+        return HandleRepositoryMethodsReponses.transformResultSetToAppropriateReturnType(combinedResults, joinPoint);
     }
 
     private static List<Map<String, Object>> broadCastQueryWithParameterAcrossShards (String sqlString) throws SQLException {
@@ -261,42 +323,6 @@ public class ShardingAspect {
             }
 
         }
-    }
-
-    private static List<Map<String, Object>> combineQueryResults(List<ResultSet> results) throws SQLException {
-
-        /*
-         * We have to loop through everything because a result set is not updatable
-         * according to this portion of the documentation
-         * "A default ResultSet object is not updatable and has a cursor that moves forward only."
-         */
-
-        List<Map<String, Object>> combinedResults = new ArrayList<>();
-        for (ResultSet resultSet: results){
-            ResultSetMetaData metaData = resultSet.getMetaData();
-            int columnCount  = metaData.getColumnCount();
-
-            while(resultSet.next()){
-                Map<String, Object> row = new HashMap<>();
-
-                for(int i=1; i<=columnCount; i++){
-                    String columnName = metaData.getColumnName(i);
-                    Object value = resultSet.getObject(i);
-                    row.put(columnName, value);
-                }
-                combinedResults.add(row);
-            }
-        }
-        return combinedResults;
-    }
-
-    private static Object transformResultSetToAppropriateReturnType(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
-        MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
-        Class<?> returnedType = methodSignature.getReturnType();
-
-        // use ParameterizedType instead of the code below
-//        returnedType.getName();
-
     }
 
     private static String getRawSqlQueryFromJointPoint(JoinPoint joinPoint){
