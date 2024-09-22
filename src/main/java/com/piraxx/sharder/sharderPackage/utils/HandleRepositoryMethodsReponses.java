@@ -1,17 +1,16 @@
 package com.piraxx.sharder.sharderPackage.utils;
 
 import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.repository.query.ReturnedType;
+import org.springframework.data.util.Optionals;
 
 import java.lang.reflect.*;
 import java.math.BigDecimal;
-import java.security.Key;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -41,22 +40,23 @@ public class HandleRepositoryMethodsReponses {
             return responseWithList(combinedResults, joinPoint);
         }
 
+        // Check if the return type is `Optional<T>`
+        if (returnType.equals(Optional.class)) {
+            // Handle Optional<T> return type logic here
+            return responseWithOptional(combinedResults, joinPoint);
+        }
+
         // Check if the return type is `S`
         if (returnType.equals(S.class)) {
             // Handle S return type logic here
         }
 
-// Check if the return type is `Optional<T>`
-        if (returnType.equals(Optional.class)) {
-            // Handle Optional<T> return type logic here
-        }
 
 // Check if the return type is `boolean`
         if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
             // Handle boolean return type logic here
         }
 
-// Check if the return type is `void`
         if (returnType.equals(void.class)) {
             // Handle void return type logic here
         }
@@ -99,28 +99,65 @@ public class HandleRepositoryMethodsReponses {
 
     }
 
+    private static Object responseWithOptional(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
+        if(isGenericParameterSimpleNotEntity(joinPoint)){
+            return processSimpleTypeOptional(combinedResults, joinPoint);
+        }else {
+            return processEntityTypeOptional(combinedResults, joinPoint);
+        }
+    }
+
     private static Object responseWithList (List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
-        if(!isGenericType(joinPoint)){
+        if(isGenericParameterSimpleNotEntity(joinPoint)){
             return processSimpleTypeList(combinedResults, joinPoint);
         }else{
             return processEntityTypeList(combinedResults, joinPoint);
         }
     }
 
+    private static Object processSimpleTypeOptional(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
+        MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
+        Method method = methodSignature.getMethod();
+        ParameterizedType parameterizedType = (ParameterizedType) method.getGenericReturnType();
+        Type[] types = parameterizedType.getActualTypeArguments();
+        Class<?> type = (Class<?>) types[0];
+
+        for(Map<String, Object> record: combinedResults){
+            for(Object value: record.values()){
+                if(value != null){
+                    if(type.isInstance(value)){
+                        return Optional.of(value);
+                    }else {
+                        return Optional.of(convertType(value, type));
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Object processEntityTypeOptional(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
+
+    }
+
     private static Object processSimpleTypeList(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
         MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
         Method method = methodSignature.getMethod();
-        Class<?> returnType = method.getReturnType();
+        ParameterizedType parameterizedType = (ParameterizedType) method.getGenericReturnType();
+        Type[] actualTypeArguments = parameterizedType.getActualTypeArguments();
+        Class<?> returnType = (Class<?>) actualTypeArguments[0];
 
         List<Object> responseList = new ArrayList<>();
 
         for(Map<String, Object> record: combinedResults){
             for(Object value: record.values()){
-                if(returnType.isInstance(value)){
-                    responseList.add(value);
-                }else {
-                    responseList.add(convertType(value, returnType));
-                }
+               if(value != null){
+                   if(returnType.isInstance(value)){
+                       responseList.add(value);
+                   }else {
+                       responseList.add(convertType(value, returnType));
+                   }
+               }
             }
         }
         return responseList;
@@ -250,12 +287,33 @@ public class HandleRepositoryMethodsReponses {
     }
 
 
-    private static Boolean isGenericType(JoinPoint joinPoint){
+    private static Boolean isGenericParameterSimpleNotEntity(JoinPoint joinPoint){
         MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
         Method method = methodSignature.getMethod();
         Type genericReturnType = method.getGenericReturnType();
-        return genericReturnType instanceof ParameterizedType;
+        ParameterizedType parameterizedType = (ParameterizedType) genericReturnType;
+        Type[] actualTypeArguments = parameterizedType.getActualTypeArguments();
+        return checkIfArgumentIsSimpleNotEntity(actualTypeArguments[0]);
     }
+
+    private static Boolean checkIfArgumentIsSimpleNotEntity(Type type){
+        if (type instanceof Class<?>) {
+            Class<?> clazz = (Class<?>) type;
+
+            return clazz.equals(String.class) ||
+                    clazz.equals(Integer.class) || clazz.equals(int.class) ||
+                    clazz.equals(Long.class) || clazz.equals(long.class) ||
+                    clazz.equals(Boolean.class) || clazz.equals(boolean.class) ||
+                    clazz.equals(Double.class) || clazz.equals(double.class) ||
+                    clazz.equals(BigDecimal.class) ||
+                    clazz.equals(LocalDateTime.class) ||
+                    clazz.equals(LocalDate.class) ||
+                    clazz.equals(Date.class) ||
+                    clazz.equals(UUID.class);
+        }
+        return false;
+    }
+
 
     private static String getClassNameFromFQCN(String FQCN){
         return FQCN.substring(FQCN.lastIndexOf('.') + 1);

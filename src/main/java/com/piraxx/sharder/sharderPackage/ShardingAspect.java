@@ -254,7 +254,6 @@ public class ShardingAspect {
     }
 
     private static List<Map<String, Object>> broadCastQueryWithParameterAcrossShards (String sqlString) throws SQLException {
-        //Object[] shards = DataSourcesHandlerAspect.getShardList();
         Map<Object, Object> shardMap = DataSourcesHandlerAspect.getDataSourceMap();
 
         // why use resultSet set here
