@@ -1,21 +1,27 @@
 package com.piraxx.sharder.sharderPackage.utils;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.lang.reflect.Method;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
+import java.lang.reflect.*;
+import java.math.BigDecimal;
+import java.security.Key;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.*;
 
 public class HandleRepositoryMethodsReponses {
+
+    private static final Logger logger = LoggerFactory.getLogger(HandleRepositoryMethodsReponses.class);
 
 
     /* This method assumes all the repository method will return List<entity>
@@ -94,12 +100,13 @@ public class HandleRepositoryMethodsReponses {
     }
 
     private static Object responseWithList (List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
-        if("if parameter in generic list is not an entity"){
+        if(!isGenericType(joinPoint)){
             return processSimpleTypeList(combinedResults, joinPoint);
         }else{
             return processEntityTypeList(combinedResults, joinPoint);
         }
     }
+
 
     private static Object processEntityTypeList(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
         MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
@@ -128,7 +135,7 @@ public class HandleRepositoryMethodsReponses {
                 ParameterizedType parameterizedType = (ParameterizedType) genericReturnType;
                 Type[] actualTypeArguments = parameterizedType.getActualTypeArguments();
 
-                /* If there is an argument, we get its full name*/
+                /* If there is an argument, we get its class name*/
                 if(actualTypeArguments.length > 0){
                     Class<?> entityType = (Class<?>) actualTypeArguments[0];
                     return prepareListOfEntities(combinedResults, entityType);
@@ -138,45 +145,99 @@ public class HandleRepositoryMethodsReponses {
         return null;
     }
 
-    private static Entity prepareListOfEntities(List<Map<String, Object>> combinedResults, Class<?> entityType){
+    private static List<Object> prepareListOfEntities(List<Map<String, Object>> combinedResults, Class<?> entityType){
+        List<Object> responseList = new ArrayList<>();
         try {
-            // Create a new instance of the entity class dynamically
-            Object entityInstance = entityType.getDeclaredConstructor().newInstance();
+            for(Map<String, Object> record: combinedResults){
+                Object entityInstance = entityType.getDeclaredConstructor().newInstance();
+                Field[] fields = entityType.getDeclaredFields();
 
-            // Get all declared fields of the entity class
-            Field[] fields = entityType.getDeclaredFields();
+                for(Field field: fields){
 
-            // Iterate through each field and set a dummy value
-            for (Field field : fields) {
-                // Skip fields like @Id, or any field that shouldn't be set dynamically if needed
-                if (field.getName().equalsIgnoreCase("id")) {
-                    continue; // Skip primary key fields or any other condition as needed
+                    if(field.isAnnotationPresent(Id.class)){continue;}
+                    field.setAccessible(true);
+
+                    // Use the column name if @Column is present
+                    String fieldName = field.getName();
+                    if (field.isAnnotationPresent(Column.class)) {
+                        Column columnAnnotation = field.getAnnotation(Column.class);
+                        fieldName = removeUnderScores(columnAnnotation.name());
+                    }
+
+                      for(String key: record.keySet()){
+                          if(fieldName.equalsIgnoreCase(removeUnderScores(key))){
+                              Object value = record.get(key);
+                              if(value != null && field.getType().isAssignableFrom(value.getClass())){
+                                  field.set(entityInstance, value);
+                              }else {
+                                  field.set(entityInstance, convertType(value, field.getType()));
+                              }
+                          }
+                      }
                 }
-
-                // Make the field accessible if it is private
-                field.setAccessible(true);
-
-                // Set some dummy value based on the field type
-                if (field.getType().equals(String.class)) {
-                    field.set(entityInstance, "sampleValue"); // Set a sample string value
-                } else if (field.getType().equals(Integer.class) || field.getType().equals(int.class)) {
-                    field.set(entityInstance, 123); // Set a sample integer value
-                } else if (field.getType().equals(Boolean.class) || field.getType().equals(boolean.class)) {
-                    field.set(entityInstance, true); // Set a sample boolean value
-                }
-                // Add more type checks for other field types as needed (e.g., Date, Long, etc.)
+                responseList.add(entityInstance);
             }
-
-            // Output the dynamically created entity instance
-            System.out.println("Entity instance created: " + entityInstance);
+            return responseList;
 
         } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
-            e.printStackTrace(); // Handle any reflection-related exceptions
+            logger.error("Error while preparing list of entities", e);
+        }
+        return responseList;
+    }
+
+    private static Object convertType(Object value, Class<?> targetType) {
+        if (value == null) {
+            return null;
         }
 
+        if (targetType.equals(String.class)) {
+            return value.toString();
+        }
+        if (targetType.equals(Integer.class) || targetType.equals(int.class)) {
+            return Integer.parseInt(value.toString());
+        }
+        if (targetType.equals(Long.class) || targetType.equals(long.class)) {
+            return Long.parseLong(value.toString());
+        }
+        if (targetType.equals(Boolean.class) || targetType.equals(boolean.class)) {
+            return Boolean.parseBoolean(value.toString());
+        }
+        if (targetType.equals(Double.class) || targetType.equals(double.class)) {
+            return Double.parseDouble(value.toString());
+        }
+        if (targetType.equals(BigDecimal.class)) {
+            return new BigDecimal(value.toString());
+        }
+        if (targetType.equals(LocalDateTime.class)) {
+            return LocalDateTime.parse(value.toString());
+        }
+        if (targetType.equals(LocalDate.class)) {
+            return LocalDate.parse(value.toString());
+        }
+        if (targetType.equals(Date.class)) {
+            // Ensure the value is of type Timestamp for conversion
+            if (value instanceof java.sql.Timestamp) {
+                return new Date(((java.sql.Timestamp) value).getTime());
+            }
+        }
+        if (targetType.equals(UUID.class)) {
+            return UUID.fromString(value.toString());
+        }
+
+        return value;
+    }
+
+    private static String removeUnderScores(String str){
+        return str.replace("_", "");
     }
 
 
+    private static Boolean isGenericType(JoinPoint joinPoint){
+        MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
+        Method method = methodSignature.getMethod();
+        Type genericReturnType = method.getGenericReturnType();
+        return genericReturnType instanceof ParameterizedType;
+    }
 
     private static String getClassNameFromFQCN(String FQCN){
         return FQCN.substring(FQCN.lastIndexOf('.') + 1);
@@ -189,7 +250,6 @@ public class HandleRepositoryMethodsReponses {
          * according to this portion of the documentation
          * "A default ResultSet object is not updatable and has a cursor that moves forward only."
          */
-
         List<Map<String, Object>> combinedResults = new ArrayList<>();
         for (ResultSet resultSet: results){
             ResultSetMetaData metaData = resultSet.getMetaData();

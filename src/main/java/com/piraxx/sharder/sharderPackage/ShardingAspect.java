@@ -13,18 +13,14 @@ import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.ReturnedType;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
 import java.sql.*;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -75,8 +71,6 @@ public class ShardingAspect {
              * hard and take a long time to process queries.
              *
              */
-
-
         }else if(args.length == 1){
             // if request comes in with only one arg like findById or save etc
             Object arg = args[0];
@@ -127,10 +121,10 @@ public class ShardingAspect {
         * 2. operations like DELETE, INSERT, or UPDATE that return nothing
         * */
         if(sqlString.startsWith("SELECT") || sqlString.startsWith("select")){
+            return performQueryOperationWithReturnValue(sqlString, joinPoint);
+        }else{
             performQueryOperationWithNoReturnValue(sqlString, joinPoint);
             return null;
-        }else{
-            return performQueryOperationWithReturnValue(sqlString, joinPoint);
         }
     }
 
@@ -346,7 +340,7 @@ public class ShardingAspect {
         return false;
     }
 
-    private static Annotation[] getRepositoryMethodAnnotation(JoinPoint joinPoint){
+    public static Annotation[] getRepositoryMethodAnnotation(JoinPoint joinPoint){
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
         Method method = signature.getMethod();
         return method.getAnnotations();
