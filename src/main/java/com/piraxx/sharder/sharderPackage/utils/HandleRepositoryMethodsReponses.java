@@ -38,7 +38,7 @@ public class HandleRepositoryMethodsReponses {
 
         // Check if the return type is `List<T>`
         if (returnType.equals(List.class)) {
-            responseWithList(combinedResults, joinPoint);
+            return responseWithList(combinedResults, joinPoint);
         }
 
         // Check if the return type is `S`
@@ -107,6 +107,24 @@ public class HandleRepositoryMethodsReponses {
         }
     }
 
+    private static Object processSimpleTypeList(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
+        MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
+        Method method = methodSignature.getMethod();
+        Class<?> returnType = method.getReturnType();
+
+        List<Object> responseList = new ArrayList<>();
+
+        for(Map<String, Object> record: combinedResults){
+            for(Object value: record.values()){
+                if(returnType.isInstance(value)){
+                    responseList.add(value);
+                }else {
+                    responseList.add(convertType(value, returnType));
+                }
+            }
+        }
+        return responseList;
+    }
 
     private static Object processEntityTypeList(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
         MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
