@@ -6,8 +6,6 @@ import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.repository.query.ReturnedType;
-import org.springframework.data.util.Optionals;
 
 import java.lang.reflect.*;
 import java.math.BigDecimal;
@@ -42,11 +40,10 @@ public class HandleRepositoryMethodsReponses {
 
         // Check if the return type is `Optional<T>`
         if (returnType.equals(Optional.class)) {
-            // Handle Optional<T> return type logic here
             return responseWithOptional(combinedResults, joinPoint);
         }
 
-        // Check if the return type is `S`
+        // Check for those returning just the entity
         if (returnType.equals(S.class)) {
             // Handle S return type logic here
         }
@@ -137,7 +134,12 @@ public class HandleRepositoryMethodsReponses {
     }
 
     private static Object processEntityTypeOptional(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
-
+        MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
+        Method method = methodSignature.getMethod();
+        ParameterizedType parameterizedType = (ParameterizedType) method.getGenericReturnType();
+        Type[] types = parameterizedType.getActualTypeArguments();
+        Class<?> entityType = (Class<?>) types[0];
+        return prepareOptionalOfEntity(combinedResults,entityType);
     }
 
     private static Object processSimpleTypeList(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
@@ -193,19 +195,55 @@ public class HandleRepositoryMethodsReponses {
                 /* If there is an argument, we get its class name*/
                 if(actualTypeArguments.length > 0){
                     Class<?> entityType = (Class<?>) actualTypeArguments[0];
-                    return prepareListOfEntities(combinedResults, entityType);
+                    return prepareListOfEntity(combinedResults, entityType);
                 }
             }
         }
         return null;
     }
 
-    private static List<Object> prepareListOfEntities(List<Map<String, Object>> combinedResults, Class<?> entityType){
+    private static Optional<Object> prepareOptionalOfEntity(List<Map<String, Object>> combinedResults, Class<?> entityType){
+        try{
+            Object entityInstance = entityType.getDeclaredConstructor().newInstance();
+            Field[] declaredFields = entityType.getDeclaredFields();
+
+            for(Map<String, Object> record: combinedResults){
+                    for(Field field: declaredFields){
+
+                        if(field.isAnnotationPresent(Id.class)){continue;}
+                        field.setAccessible(true);
+
+                        String fieldName = field.getName();
+                        if(field.isAnnotationPresent(Column.class)){
+                            Column columnAnnotation = field.getAnnotation(Column.class);
+                            fieldName = removeUnderScores(columnAnnotation.name());
+                        }
+
+                        for(String key: record.keySet()) {
+                            if(fieldName.equalsIgnoreCase(removeUnderScores(key))){
+                                Object value = record.get(key);
+                                if(value != null && field.getType().isAssignableFrom(value.getClass())){
+                                    field.set(entityInstance, value);
+                                }else{
+                                    field.set(entityInstance, convertType(value, field.getType()));
+                                }
+                            }
+                        }
+                }
+            }
+            return Optional.of(entityInstance);
+        } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e){
+            logger.error("Error while preparing list of entities", e);
+        }
+        return Optional.empty();
+    }
+
+    private static List<Object> prepareListOfEntity(List<Map<String, Object>> combinedResults, Class<?> entityType){
         List<Object> responseList = new ArrayList<>();
         try {
+            Field[] fields = entityType.getDeclaredFields();
             for(Map<String, Object> record: combinedResults){
                 Object entityInstance = entityType.getDeclaredConstructor().newInstance();
-                Field[] fields = entityType.getDeclaredFields();
 
                 for(Field field: fields){
 
@@ -286,7 +324,6 @@ public class HandleRepositoryMethodsReponses {
         return str.replace("_", "");
     }
 
-
     private static Boolean isGenericParameterSimpleNotEntity(JoinPoint joinPoint){
         MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
         Method method = methodSignature.getMethod();
@@ -313,7 +350,6 @@ public class HandleRepositoryMethodsReponses {
         }
         return false;
     }
-
 
     private static String getClassNameFromFQCN(String FQCN){
         return FQCN.substring(FQCN.lastIndexOf('.') + 1);
