@@ -1,6 +1,7 @@
 package com.piraxx.sharder.sharderPackage.utils;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
@@ -44,8 +45,8 @@ public class HandleRepositoryMethodsReponses {
         }
 
         // Check for those returning just the entity
-        if (returnType.equals(S.class)) {
-            // Handle S return type logic here
+        if (isEntityClass(joinPoint)) {
+            return responseWithEntityClass(combinedResults, joinPoint);
         }
 
 
@@ -96,6 +97,16 @@ public class HandleRepositoryMethodsReponses {
 
     }
 
+    private static Object responseWithEntityClass(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
+        Class<?> entityType = getNoneParameterizedReturnType(joinPoint);
+        try{
+            return buildEntity(entityType, combinedResults);
+        } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e){
+            logger.error("Error while preparing entity", e);
+        }
+        return Optional.empty();
+    }
+
     private static Object responseWithOptional(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
         if(isGenericParameterSimpleNotEntity(joinPoint)){
             return processSimpleTypeOptional(combinedResults, joinPoint);
@@ -113,12 +124,7 @@ public class HandleRepositoryMethodsReponses {
     }
 
     private static Object processSimpleTypeOptional(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
-        MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
-        Method method = methodSignature.getMethod();
-        ParameterizedType parameterizedType = (ParameterizedType) method.getGenericReturnType();
-        Type[] types = parameterizedType.getActualTypeArguments();
-        Class<?> type = (Class<?>) types[0];
-
+        Class<?> type = getArgInParameterizedReturnType(joinPoint);
         for(Map<String, Object> record: combinedResults){
             for(Object value: record.values()){
                 if(value != null){
@@ -134,20 +140,12 @@ public class HandleRepositoryMethodsReponses {
     }
 
     private static Object processEntityTypeOptional(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
-        MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
-        Method method = methodSignature.getMethod();
-        ParameterizedType parameterizedType = (ParameterizedType) method.getGenericReturnType();
-        Type[] types = parameterizedType.getActualTypeArguments();
-        Class<?> entityType = (Class<?>) types[0];
+        Class<?> entityType = getArgInParameterizedReturnType(joinPoint);
         return prepareOptionalOfEntity(combinedResults,entityType);
     }
 
     private static Object processSimpleTypeList(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
-        MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
-        Method method = methodSignature.getMethod();
-        ParameterizedType parameterizedType = (ParameterizedType) method.getGenericReturnType();
-        Type[] actualTypeArguments = parameterizedType.getActualTypeArguments();
-        Class<?> returnType = (Class<?>) actualTypeArguments[0];
+        Class<?> returnType = getArgInParameterizedReturnType(joinPoint);
 
         List<Object> responseList = new ArrayList<>();
 
@@ -204,36 +202,10 @@ public class HandleRepositoryMethodsReponses {
 
     private static Optional<Object> prepareOptionalOfEntity(List<Map<String, Object>> combinedResults, Class<?> entityType){
         try{
-            Object entityInstance = entityType.getDeclaredConstructor().newInstance();
-            Field[] declaredFields = entityType.getDeclaredFields();
-
-            for(Map<String, Object> record: combinedResults){
-                    for(Field field: declaredFields){
-
-                        if(field.isAnnotationPresent(Id.class)){continue;}
-                        field.setAccessible(true);
-
-                        String fieldName = field.getName();
-                        if(field.isAnnotationPresent(Column.class)){
-                            Column columnAnnotation = field.getAnnotation(Column.class);
-                            fieldName = removeUnderScores(columnAnnotation.name());
-                        }
-
-                        for(String key: record.keySet()) {
-                            if(fieldName.equalsIgnoreCase(removeUnderScores(key))){
-                                Object value = record.get(key);
-                                if(value != null && field.getType().isAssignableFrom(value.getClass())){
-                                    field.set(entityInstance, value);
-                                }else{
-                                    field.set(entityInstance, convertType(value, field.getType()));
-                                }
-                            }
-                        }
-                }
-            }
+            Object entityInstance = buildEntity(entityType, combinedResults);
             return Optional.of(entityInstance);
         } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e){
-            logger.error("Error while preparing list of entities", e);
+            logger.error("Error while preparing entity for Optional", e);
         }
         return Optional.empty();
     }
@@ -350,6 +322,69 @@ public class HandleRepositoryMethodsReponses {
         }
         return false;
     }
+
+    private static Class<?> getArgInParameterizedReturnType(JoinPoint joinPoint){
+        MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
+        Method method = methodSignature.getMethod();
+        ParameterizedType parameterizedType = (ParameterizedType) method.getGenericReturnType();
+        Type[] types = parameterizedType.getActualTypeArguments();
+        return (Class<?>) types[0];
+    }
+
+    private static Class<?> getNoneParameterizedReturnType(JoinPoint joinPoint){
+        MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
+        Method method = methodSignature.getMethod();
+        return method.getReturnType();
+    }
+
+    private static Boolean isEntityClass(JoinPoint joinPoint){
+        MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
+        Method method = methodSignature.getMethod();
+        Class<?> type = method.getReturnType();
+        /* Class<?> is an implementation of Type which is an interface. So if you
+        * try to get the isAnnotationPresent on Type there will be error.
+        *
+        * Also note, if you do getClass() on Type, you are not getting the return type
+        * in the method, but you are getting the class
+        * object for the object type, which is already a Class<?>. You are
+        * */
+        return type.isAnnotationPresent(Entity.class);
+    }
+
+    private static Object buildEntity(Class<?> entityType, List<Map<String, Object>> combinedResults) throws NoSuchMethodException, InvocationTargetException, InstantiationException, IllegalAccessException {
+
+        Object entityInstance = entityType.getDeclaredConstructor().newInstance();
+        Field[] declaredFields = entityType.getDeclaredFields();
+
+        for(Map<String, Object> record: combinedResults) {
+            for (Field field : declaredFields) {
+
+                if (field.isAnnotationPresent(Id.class)) {
+                    continue;
+                }
+                field.setAccessible(true);
+
+                String fieldName = field.getName();
+                if (field.isAnnotationPresent(Column.class)) {
+                    Column columnAnnotation = field.getAnnotation(Column.class);
+                    fieldName = removeUnderScores(columnAnnotation.name());
+                }
+
+                for (String key : record.keySet()) {
+                    if (fieldName.equalsIgnoreCase(removeUnderScores(key))) {
+                        Object value = record.get(key);
+                        if (value != null && field.getType().isAssignableFrom(value.getClass())) {
+                            field.set(entityInstance, value);
+                        } else {
+                            field.set(entityInstance, convertType(value, field.getType()));
+                        }
+                    }
+                }
+            }
+        }
+        return entityInstance;
+    }
+
 
     private static String getClassNameFromFQCN(String FQCN){
         return FQCN.substring(FQCN.lastIndexOf('.') + 1);
