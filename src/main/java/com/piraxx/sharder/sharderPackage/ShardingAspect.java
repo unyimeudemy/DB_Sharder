@@ -4,12 +4,15 @@ import com.piraxx.sharder.domain.TransactionEntity;
 import com.piraxx.sharder.sharderPackage.utils.HandleRepositoryMethodsReponses;
 import com.piraxx.sharder.sharderPackage.utils.ResourceCloser;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityManager;
 import jakarta.persistence.Id;
+import jakarta.persistence.PersistenceContext;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.After;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.aspectj.lang.reflect.MethodSignature;
+import org.hibernate.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.jpa.repository.Query;
@@ -27,6 +30,9 @@ import java.util.Map;
 @Aspect
 @Component
 public class ShardingAspect {
+
+    @PersistenceContext
+    private static EntityManager entityManager;
 
     static ConsistentHashing consistentHashing = new ConsistentHashing();
 
@@ -109,24 +115,118 @@ public class ShardingAspect {
     }
 
     private static Object processQueriesWithParameters (String sqlString, JoinPoint joinPoint) throws SQLException {
-        PreparedStatement preparedStatement = broadCastQueryWithParameterAcrossShards(sqlString);
+        PreparedStatement preparedStatement = broadCastQueryWithParameterAcrossShards(sqlString, joinPoint);
 
         // broadCastQueryAcrossShards should return something that we can
         // then set the parameters with.
     }
 
-    private static Object broadCastQueryWithoutParametersAcrossShards(String sqlString, JoinPoint joinPoint) throws SQLException {
+    private static Object broadCastQueryWithoutParametersAcrossShards(String jpqlQuery, JoinPoint joinPoint) throws SQLException {
         /* There are two situations
         * 1. operations like SELECT that return sometime
         * 2. operations like DELETE, INSERT, or UPDATE that return nothing
         * */
-        if(sqlString.startsWith("SELECT") || sqlString.startsWith("select")){
-            return performQueryOperationWithReturnValue(sqlString, joinPoint);
+        String nativeQuery = getNativeSQLFromJPQL(jpqlQuery);
+        if(nativeQuery.startsWith("SELECT") || nativeQuery.startsWith("select")){
+            return performQueryOperationWithReturnValue(nativeQuery, joinPoint);
         }else{
-            performQueryOperationWithNoReturnValue(sqlString, joinPoint);
+            performQueryOperationWithNoReturnValue(nativeQuery, joinPoint);
             return null;
         }
     }
+
+    private static List<Map<String, Object>> broadCastQueryWithParameterAcrossShards (String jpqlQuery, JoinPoint joinPoint) throws SQLException {
+        Map<Object, Object> shardMap = DataSourcesHandlerAspect.getDataSourceMap();
+
+        // why use resultSet set here
+        List<ResultSet> results = new ArrayList<>();
+
+        Connection connection = null;
+        PreparedStatement preparedStatement = null;
+        ResultSet resultSet = null;
+
+        for(Object shardKey: shardMap.keySet()){
+            DataSource dataSource = (DataSource) shardMap.get(shardKey);
+            try{
+                /*
+                 * The reason for calling dataSource.getConnection()
+                 * is that the DataSource object itself does not represent a direct,
+                 * persistent connection to the database. Instead, it acts as a factory
+                 * for providing pooled connections.
+                 *
+                 * DataSource provides connection pooling, where multiple connections are
+                 * kept alive and reused. When you call getConnection(), you're borrowing a
+                 * pre-existing connection from this pool.
+                 *
+                 * After using a connection, it is returned to the pool when it is closed in the finally block.
+                 * The pool manages these connections, so we are not disconnecting from the database, just
+                 * returning the connection to the pool for the next use.
+                 *
+                 */
+                connection = dataSource.getConnection();
+
+                String nativeSql = getNativeSQLFromJPQL(jpqlQuery);
+
+                /*
+                 * Here we are using a PreparedStatement object for sending parameterized
+                 * SQL statements to the database. Recall that parameterized statement are
+                 * statements that are meant to be reused very often with different parameter.
+                 * Thus, it is not suitable to use Statement object which is designed for normal
+                 * statements according documentation on the Statement object that says
+                 * "If the same SQL statement is executed many times, it may be more
+                 * efficient to use a PreparedStatement object."
+                 */
+                preparedStatement = connection.prepareStatement(nativeSql);
+                resultSet = preparedStatement.executeQuery(nativeSql);
+
+                // If you have parameters to set, do it here
+                // Example: preparedStatement.setString(1, "someValue");
+
+                // combine results from each shard
+
+                /* we can either make the jpql query native sql or use jpa entitymanager for the queries
+                * on each shard. this means that we will need to get an entity manager of each
+                * shard and be using it for each query*/
+
+            }catch (Exception e){
+                logger.error("Error performing operation on shard: {}", shardKey);
+            }finally {
+                /*
+                 * closes the connection and makes it available for any other component
+                 * in the app. That is makes it idle and returns it to the pool.
+                 *
+                 * Note resources are passed in order the expecting are expected
+                 * and try-with-resources statement can eliminate the need for this
+                 * resource closing util class, but I still implemented it for
+                 * learning purpose.
+                 */
+                ResourceCloser.closeResources(connection, preparedStatement, resultSet);
+            }
+
+        }
+    }
+
+    // Method to convert JPQL to native SQL using Hibernate Session
+    private static String getNativeSQLFromJPQL(String jpql) {
+
+        /* Entity manager factory or session factory is used to get the entityManager
+         * the factory is created during connection to the database so you just have to call
+         * the appropriate method and  use it.
+         *
+         * QUESTION which shard is the entity manager coming from.
+         */
+
+
+        EntityManager em =  entityManager.unwrap(Session.class);
+        Session session = em.unwrap(Session.class);
+
+        // Create a Hibernate query from the JPQL
+        org.hibernate.query.Query<?> hibernateQuery = session.createNativeQuery(jpql);
+
+        // Unwrap the query to get the native SQL
+        return hibernateQuery.getQueryString();
+    }
+
 
     private static void performQueryOperationWithNoReturnValue(String sqlString, JoinPoint joinPoint){
         Map<Object, Object> shardMap = DataSourcesHandlerAspect.getDataSourceMap();
@@ -251,71 +351,6 @@ public class ShardingAspect {
         }
         List<Map<String, Object>> combinedResults = HandleRepositoryMethodsReponses.combineQueryResults(results);
         return HandleRepositoryMethodsReponses.transformResultSetToAppropriateReturnType(combinedResults, joinPoint);
-    }
-
-    private static List<Map<String, Object>> broadCastQueryWithParameterAcrossShards (String sqlString) throws SQLException {
-        Map<Object, Object> shardMap = DataSourcesHandlerAspect.getDataSourceMap();
-
-        // why use resultSet set here
-        List<ResultSet> results = new ArrayList<>();
-
-        Connection connection = null;
-        PreparedStatement preparedStatement = null;
-        ResultSet resultSet = null;
-
-        for(Object shardKey: shardMap.keySet()){
-            DataSource dataSource = (DataSource) shardMap.get(shardKey);
-            try{
-                /*
-                 * The reason for calling dataSource.getConnection()
-                 * is that the DataSource object itself does not represent a direct,
-                 * persistent connection to the database. Instead, it acts as a factory
-                 * for providing pooled connections.
-                 *
-                 * DataSource provides connection pooling, where multiple connections are
-                 * kept alive and reused. When you call getConnection(), you're borrowing a
-                 * pre-existing connection from this pool.
-                 *
-                 * After using a connection, it is returned to the pool when it is closed in the finally block.
-                 * The pool manages these connections, so we are not disconnecting from the database, just
-                 * returning the connection to the pool for the next use.
-                 *
-                 */
-                connection = dataSource.getConnection();
-
-                /*
-                 * Here we are using a PreparedStatement object for sending parameterized
-                 * SQL statements to the database. Recall that parameterized statement are
-                 * statements that are meant to be reused very often with different parameter.
-                 * Thus, it is not suitable to use Statement object which is designed for normal
-                 * statements according documentation on the Statement object that says
-                 * "If the same SQL statement is executed many times, it may be more
-                 * efficient to use a PreparedStatement object."
-                 */
-                preparedStatement = connection.prepareStatement(sqlString);
-                resultSet = preparedStatement.executeQuery(sqlString);
-
-                // If you have parameters to set, do it here
-                // Example: preparedStatement.setString(1, "someValue");
-
-                // combine results from each shard
-
-            }catch (Exception e){
-                logger.error("Error performing operation on shard: {}", shardKey);
-            }finally {
-                /*
-                 * closes the connection and makes it available for any other component
-                 * in the app. That is makes it idle and returns it to the pool.
-                 *
-                 * Note resources are passed in order the expecting are expected
-                 * and try-with-resources statement can eliminate the need for this
-                 * resource closing util class, but I still implemented it for
-                 * learning purpose.
-                 */
-                ResourceCloser.closeResources(connection, preparedStatement, resultSet);
-            }
-
-        }
     }
 
     private static String getRawSqlQueryFromJointPoint(JoinPoint joinPoint){

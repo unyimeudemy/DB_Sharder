@@ -45,57 +45,66 @@ public class HandleRepositoryMethodsReponses {
         }
 
         // Check for those returning just the entity
-        if (isEntityClass(joinPoint)) {
+        if (isReturnTypeEntityClass(joinPoint)) {
             return responseWithEntityClass(combinedResults, joinPoint);
         }
 
-
-// Check if the return type is `boolean`
-        if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
-            // Handle boolean return type logic here
-        }
-
-        if (returnType.equals(void.class)) {
-            // Handle void return type logic here
-        }
-
-        // Check if the return type is `Iterable<T>`
-        if (returnType.equals(Iterable.class)) {
-            // Handle Iterable<T> return type logic here
-        }
+        return null;
 
 
-// Check if the return type is `Flux<T>`
-        if (returnType.equals(Flux.class)) {
-            // Handle Flux<T> return type logic here
-        }
-
-// Check if the return type is `Mono<T>`
-        if (returnType.equals(Mono.class)) {
-            // Handle Mono<T> return type logic here
-        }
-
-        // Check if the return type is `Single<T>`
-        if (returnType.equals(Single.class)) {
-            // Handle Single<T> return type logic here
-        }
-
-// Check if the return type is `Completable`
-        if (returnType.equals(Completable.class)) {
-            // Handle Completable return type logic here
-        }
-
-// Check if the return type is `Page<T>`
-        if (returnType.equals(Page.class)) {
-            // Handle Page<T> return type logic here
-        }
-
-// Check if the return type is `long`
-        if (returnType.equals(long.class) || returnType.equals(Long.class)) {
-            // Handle long return type logic here
-        }
+//// Check if the return type is `boolean`
+//        if (returnType.equals(boolean.class) || returnType.equals(Boolean.class)) {
+//            return responseWithBoolean(combinedResults, joinPoint);
+//        }
+//
+//        if (returnType.equals(void.class)) {
+//            // Handle void return type logic here
+//        }
+//
+//        // Check if the return type is `Iterable<T>`
+//        if (returnType.equals(Iterable.class)) {
+//            // Handle Iterable<T> return type logic here
+//        }
+//
+//
+//// Check if the return type is `Flux<T>`
+//        if (returnType.equals(Flux.class)) {
+//            // Handle Flux<T> return type logic here
+//        }
+//
+//// Check if the return type is `Mono<T>`
+//        if (returnType.equals(Mono.class)) {
+//            // Handle Mono<T> return type logic here
+//        }
+//
+//        // Check if the return type is `Single<T>`
+//        if (returnType.equals(Single.class)) {
+//            // Handle Single<T> return type logic here
+//        }
+//
+//// Check if the return type is `Completable`
+//        if (returnType.equals(Completable.class)) {
+//            // Handle Completable return type logic here
+//        }
+//
+//// Check if the return type is `Page<T>`
+//        if (returnType.equals(Page.class)) {
+//            // Handle Page<T> return type logic here
+//        }
+//
+//// Check if the return type is `long`
+//        if (returnType.equals(long.class) || returnType.equals(Long.class)) {
+//            // Handle long return type logic here
+//        }
 
     }
+
+//    private static Boolean responseWithBoolean(List<Map<String, Object>> combinedResults, JoinPoint joinPoint){
+//        Boolean response;
+//        for(Map<String, Object> record: combinedResults){
+//            for()
+//        }
+//    }
 
     private static Object responseWithEntityClass(List<Map<String, Object>> combinedResults, JoinPoint joinPoint ){
         Class<?> entityType = getNoneParameterizedReturnType(joinPoint);
@@ -337,7 +346,7 @@ public class HandleRepositoryMethodsReponses {
         return method.getReturnType();
     }
 
-    private static Boolean isEntityClass(JoinPoint joinPoint){
+    private static Boolean isReturnTypeEntityClass(JoinPoint joinPoint){
         MethodSignature methodSignature = (MethodSignature) joinPoint.getSignature();
         Method method = methodSignature.getMethod();
         Class<?> type = method.getReturnType();
